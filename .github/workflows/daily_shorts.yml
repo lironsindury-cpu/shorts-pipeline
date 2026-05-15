@@ -26,7 +26,7 @@ jobs:
         run: |
           pip install --upgrade pip
           pip install \
-            dropbox==12.0.2 \
+            dropbox \
             moviepy==1.0.3 \
             whisper-timestamped==1.15.4 \
             Pillow==10.3.0 \
