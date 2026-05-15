@@ -2,8 +2,8 @@ name: Daily Shorts Pipeline
 
 on:
   schedule:
-    - cron: '0 8 * * *'   # 08:00 UTC = 10:00 Israel time (UTC+2)
-  workflow_dispatch:        # allow manual trigger from GitHub UI
+    - cron: '0 8 * * *'
+  workflow_dispatch:
 
 jobs:
   run-pipeline:
@@ -25,14 +25,8 @@ jobs:
       - name: Install Python dependencies
         run: |
           pip install --upgrade pip
-          pip install \
-            dropbox \
-            moviepy==1.0.3 \
-            whisper-timestamped==1.15.4 \
-            Pillow==10.3.0 \
-            numpy==1.26.4 \
-            openai-whisper==20231117 \
-            torch==2.2.2 --index-url https://download.pytorch.org/whl/cpu
+          pip install dropbox moviepy==1.0.3 whisper-timestamped Pillow numpy openai-whisper
+          pip install torch --index-url https://download.pytorch.org/whl/cpu
 
       - name: Run pipeline
         env:
