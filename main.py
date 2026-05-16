@@ -5,12 +5,14 @@ Flow: Dropbox raw_videos/ -> Edit (iShowSpeed style) -> Dropbox edited_shorts/
 
 import os
 import sys
+import json
 import logging
 import random
 import subprocess
 import shutil
 import tempfile
 
+import anthropic
 import dropbox
 from dropbox.files import WriteMode
 import whisper_timestamped as whisper
@@ -26,11 +28,6 @@ RAW_FOLDER      = "/raw_videos"
 EDITED_FOLDER   = "/edited_shorts"
 
 # ── iShowSpeed caption config ────────────────────────────────────────────────
-SPEED_COLORS = [
-    (255, 255,   0, 255),   # yellow  (main)
-    (255, 255, 255, 255),   # white
-    (255,  50,  50, 255),   # red
-]
 HYPE_WORDS = [
     "SHEESH","LETS GO","W","BUSSIN","RIZZ",
     "NOWAY","GOATED","SIGMA","GIGACHAD","FR FR",
@@ -50,28 +47,20 @@ FONT_PATHS = [
 def get_dropbox_client():
     return dropbox.Dropbox(DROPBOX_TOKEN)
 
-
 def list_raw_videos(dbx):
-    """Return a list of file metadata objects in raw_videos/."""
     result = dbx.files_list_folder(RAW_FOLDER)
-    files = [e for e in result.entries if isinstance(e, dropbox.files.FileMetadata)]
-    return files
-
+    return [e for e in result.entries if isinstance(e, dropbox.files.FileMetadata)]
 
 def download_file(dbx, dropbox_path: str, local_path: str):
     logging.info(f"Downloading {dropbox_path} ...")
     with open(local_path, "wb") as f:
         _, response = dbx.files_download(dropbox_path)
         f.write(response.content)
-    logging.info(f"Downloaded to {local_path}")
-
 
 def upload_file(dbx, local_path: str, dropbox_path: str):
     logging.info(f"Uploading to {dropbox_path} ...")
     with open(local_path, "rb") as f:
         dbx.files_upload(f.read(), dropbox_path, mode=WriteMode.overwrite)
-    logging.info("Upload complete.")
-
 
 def delete_file(dbx, dropbox_path: str):
     dbx.files_delete_v2(dropbox_path)
@@ -79,11 +68,45 @@ def delete_file(dbx, dropbox_path: str):
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# CLAUDE - GENERATE METADATA
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def generate_metadata(video_name: str) -> dict:
+    client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
+
+    prompt = f"""You are a professional YouTube Shorts growth strategist.
+Based on this video file name: "{video_name}"
+
+Generate the following for maximum viral reach on YouTube Shorts:
+1. A short punchy viral TITLE (max 60 characters, hype energy)
+2. A compelling DESCRIPTION (2-3 sentences, energetic tone, ends with hashtags)
+3. Exactly 15 YouTube TAGS (mix of broad and niche, English)
+
+Return ONLY valid JSON, no markdown, no explanation:
+{{
+  "title": "...",
+  "description": "... #shorts #viral #fyp",
+  "tags": ["tag1", "tag2", "tag3", "tag4", "tag5", "tag6", "tag7", "tag8", "tag9", "tag10", "tag11", "tag12", "tag13", "tag14", "tag15"]
+}}"""
+
+    message = client.messages.create(
+        model="claude-sonnet-4-20250514",
+        max_tokens=1000,
+        messages=[{"role": "user", "content": prompt}],
+    )
+
+    raw = message.content[0].text.strip()
+    raw = raw.replace("```json", "").replace("```", "").strip()
+    metadata = json.loads(raw)
+    logging.info(f"Metadata generated: {metadata['title']}")
+    return metadata
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # VIDEO PROCESSING
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def convert_to_portrait(input_path: str, output_path: str):
-    """Convert video to 9:16 (1080x1920) with blurred background."""
     cmd = [
         "ffmpeg", "-y", "-i", input_path,
         "-vf",
@@ -100,7 +123,6 @@ def convert_to_portrait(input_path: str, output_path: str):
     if result.returncode != 0:
         raise RuntimeError(f"ffmpeg failed:\n{result.stderr}")
 
-
 def get_font(size=FONT_SIZE):
     for path in FONT_PATHS:
         if os.path.exists(path):
@@ -110,19 +132,15 @@ def get_font(size=FONT_SIZE):
                 continue
     return ImageFont.load_default()
 
-
 def make_word_frame(word_text: str, video_w: int, color, scale=1.0):
     font = get_font(int(FONT_SIZE * scale))
     img  = Image.new("RGBA", (video_w, 260), (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
-
     bbox   = draw.textbbox((0, 0), word_text, font=font)
     text_w = bbox[2] - bbox[0]
     text_h = bbox[3] - bbox[1]
     x = (video_w - text_w) // 2
     y = (260 - text_h) // 2
-
-    # thick black outline
     r = max(4, int(FONT_SIZE * scale * 0.05))
     for dx in range(-r, r + 1):
         for dy in range(-r, r + 1):
@@ -131,26 +149,22 @@ def make_word_frame(word_text: str, video_w: int, color, scale=1.0):
     draw.text((x, y), word_text, font=font, fill=color)
     return np.array(img)
 
-
 def make_hype_frame(hype_word: str, video_w: int):
     font = get_font(int(FONT_SIZE * 1.4))
     img  = Image.new("RGBA", (video_w, 300), (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
     color = (255, 255, 0, 255)
-
     bbox   = draw.textbbox((0, 0), hype_word, font=font)
     text_w = bbox[2] - bbox[0]
     text_h = bbox[3] - bbox[1]
     x = (video_w - text_w) // 2
     y = (300 - text_h) // 2
-
     for dx in range(-6, 7):
         for dy in range(-6, 7):
             if dx * dx + dy * dy <= 36:
                 draw.text((x + dx, y + dy), hype_word, font=font, fill=(0, 0, 0, 255))
     draw.text((x, y), hype_word, font=font, fill=color)
     return np.array(img)
-
 
 def transcribe(video_path: str):
     logging.info("Transcribing with Whisper ...")
@@ -167,28 +181,22 @@ def transcribe(video_path: str):
             })
     return words
 
-
 def add_speed_captions(input_path: str, output_path: str):
     words = transcribe(input_path)
     video = VideoFileClip(input_path)
     clips = []
-
     bad = set("♫♪[]")
     words = [w for w in words if not any(c in w["word"] for c in bad)]
-
     sub_y     = video.h - 350
     hype_step = max(8, len(words) // 4)
-
     for i, wd in enumerate(words):
         duration = wd["end"] - wd["start"]
-
         if i % 7 == 0:
             color = (255, 50, 50, 255)
         elif i % 3 == 0:
             color = (255, 255, 255, 255)
         else:
             color = (255, 255, 0, 255)
-
         scale = 1.2 if duration < 0.3 else 1.0
         frame = make_word_frame(wd["word"], video.w, color, scale)
         clip  = (ImageClip(frame, ismask=False)
@@ -196,8 +204,6 @@ def add_speed_captions(input_path: str, output_path: str):
                  .set_end(wd["end"])
                  .set_position(("center", sub_y)))
         clips.append(clip)
-
-        # hype overlay
         if i > 0 and i % hype_step == 0:
             hw    = random.choice(HYPE_WORDS)
             hf    = make_hype_frame(hw, video.w)
@@ -206,11 +212,9 @@ def add_speed_captions(input_path: str, output_path: str):
                      .set_end(min(wd["start"] + 0.6, wd["end"]))
                      .set_position(("center", int(video.h * 0.15))))
             clips.append(hclip)
-
     logging.info(f"Compositing {len(clips)} caption clips ...")
     final = CompositeVideoClip([video] + clips)
     final.write_videofile(output_path, codec="libx264", audio_codec="aac")
-    logging.info(f"Saved: {output_path}")
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -232,20 +236,18 @@ def main():
         raw_path      = os.path.join(tmp, "raw.mp4")
         portrait_path = os.path.join(tmp, "portrait.mp4")
         final_path    = os.path.join(tmp, f"short_{target.name}")
+        json_path     = os.path.join(tmp, f"{target.name}_metadata.json")
 
-        # 1. Download
         download_file(dbx, target.path_lower, raw_path)
-
-        # 2. Convert to 9:16 portrait
         convert_to_portrait(raw_path, portrait_path)
-
-        # 3. Add Speed-style captions
         add_speed_captions(portrait_path, final_path)
 
-        # 4. Upload to edited_shorts/
-        upload_file(dbx, final_path, f"{EDITED_FOLDER}/{target.name}")
+        metadata = generate_metadata(target.name)
+        with open(json_path, "w", encoding="utf-8") as f:
+            json.dump(metadata, f, ensure_ascii=False, indent=2)
 
-        # 5. Delete raw file
+        upload_file(dbx, final_path, f"{EDITED_FOLDER}/short_{target.name}")
+        upload_file(dbx, json_path,  f"{EDITED_FOLDER}/{target.name}_metadata.json")
         delete_file(dbx, target.path_lower)
 
     logging.info("Done!")
