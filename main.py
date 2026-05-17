@@ -9,25 +9,24 @@ import json
 import logging
 import random
 import subprocess
-import shutil
 import tempfile
 
-import anthropic
 import dropbox
 from dropbox.files import WriteMode
 import whisper_timestamped as whisper
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 from moviepy.editor import VideoFileClip, ImageClip, CompositeVideoClip
+import google.generativeai as genai
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
 
-# ── Dropbox config ──────────────────────────────────────────────────────────
-DROPBOX_TOKEN   = os.environ["DROPBOX_TOKEN"]
-RAW_FOLDER      = "/raw_videos"
-EDITED_FOLDER   = "/edited_shorts"
+# ── Config ──────────────────────────────────────────────────────────────────
+DROPBOX_TOKEN = os.environ["DROPBOX_TOKEN"]
+GEMINI_API_KEY = os.environ["GEMINI_API_KEY"]
+RAW_FOLDER    = "/raw_videos"
+EDITED_FOLDER = "/edited_shorts"
 
-# ── iShowSpeed caption config ────────────────────────────────────────────────
 HYPE_WORDS = [
     "SHEESH","LETS GO","W","BUSSIN","RIZZ",
     "NOWAY","GOATED","SIGMA","GIGACHAD","FR FR",
@@ -40,10 +39,6 @@ FONT_PATHS = [
 ]
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# DROPBOX HELPERS
-# ═══════════════════════════════════════════════════════════════════════════════
-
 def get_dropbox_client():
     return dropbox.Dropbox(DROPBOX_TOKEN)
 
@@ -51,77 +46,53 @@ def list_raw_videos(dbx):
     result = dbx.files_list_folder(RAW_FOLDER)
     return [e for e in result.entries if isinstance(e, dropbox.files.FileMetadata)]
 
-def download_file(dbx, dropbox_path: str, local_path: str):
+def download_file(dbx, dropbox_path, local_path):
     logging.info(f"Downloading {dropbox_path} ...")
     with open(local_path, "wb") as f:
         _, response = dbx.files_download(dropbox_path)
         f.write(response.content)
 
-def upload_file(dbx, local_path: str, dropbox_path: str):
+def upload_file(dbx, local_path, dropbox_path):
     logging.info(f"Uploading to {dropbox_path} ...")
     with open(local_path, "rb") as f:
         dbx.files_upload(f.read(), dropbox_path, mode=WriteMode.overwrite)
 
-def delete_file(dbx, dropbox_path: str):
+def delete_file(dbx, dropbox_path):
     dbx.files_delete_v2(dropbox_path)
     logging.info(f"Deleted {dropbox_path}")
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# CLAUDE - GENERATE METADATA
-# ═══════════════════════════════════════════════════════════════════════════════
-
-def generate_metadata(video_name: str) -> dict:
-    client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
-
-    prompt = f"""You are a professional YouTube Shorts growth strategist.
-Based on this video file name: "{video_name}"
-
-Generate the following for maximum viral reach on YouTube Shorts:
-1. A short punchy viral TITLE (max 60 characters, hype energy)
-2. A compelling DESCRIPTION (2-3 sentences, energetic tone, ends with hashtags)
-3. Exactly 15 YouTube TAGS (mix of broad and niche, English)
-
-Return ONLY valid JSON, no markdown, no explanation:
-{{
-  "title": "...",
-  "description": "... #shorts #viral #fyp",
-  "tags": ["tag1", "tag2", "tag3", "tag4", "tag5", "tag6", "tag7", "tag8", "tag9", "tag10", "tag11", "tag12", "tag13", "tag14", "tag15"]
-}}"""
-
-    message = client.messages.create(
-        model="claude-sonnet-4-20250514",
-        max_tokens=1000,
-        messages=[{"role": "user", "content": prompt}],
-    )
-
-    raw = message.content[0].text.strip()
-    raw = raw.replace("```json", "").replace("```", "").strip()
-    metadata = json.loads(raw)
-    logging.info(f"Metadata generated: {metadata['title']}")
-    return metadata
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# VIDEO PROCESSING
-# ═══════════════════════════════════════════════════════════════════════════════
-
-def convert_to_portrait(input_path: str, output_path: str):
+def edit_video(input_path, output_path):
+    temp_edited = input_path.replace(".mp4", "_temp_edited.mp4")
     cmd = [
         "ffmpeg", "-y", "-i", input_path,
         "-vf",
-        "scale=1080:1920:force_original_aspect_ratio=increase,"
-        "crop=1080:1920,"
-        "split[bg][fg];"
-        "[bg]scale=1080:1920,boxblur=20:20[blurred];"
-        "[blurred][fg]overlay=(W-w)/2:(H-h)/2",
+        "scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,hflip",
+        "-filter:v", "setpts=PTS/1.03",
+        "-af", "atempo=1.03",
         "-c:v", "libx264", "-crf", "23",
         "-c:a", "aac", "-t", "60",
-        output_path
+        temp_edited
     ]
     result = subprocess.run(cmd, capture_output=True, text=True)
     if result.returncode != 0:
-        raise RuntimeError(f"ffmpeg failed:\n{result.stderr}")
+        raise RuntimeError(f"ffmpeg edit failed:\n{result.stderr}")
+
+    cmd2 = [
+        "ffmpeg", "-y", "-i", temp_edited,
+        "-af",
+        "silenceremove=start_periods=1:start_silence=0.3:start_threshold=-40dB"
+        ":stop_periods=-1:stop_silence=0.3:stop_threshold=-40dB",
+        "-c:v", "copy",
+        output_path
+    ]
+    result2 = subprocess.run(cmd2, capture_output=True, text=True)
+    if result2.returncode != 0:
+        import shutil
+        shutil.copy(temp_edited, output_path)
+
+    os.remove(temp_edited)
+
 
 def get_font(size=FONT_SIZE):
     for path in FONT_PATHS:
@@ -132,7 +103,7 @@ def get_font(size=FONT_SIZE):
                 continue
     return ImageFont.load_default()
 
-def make_word_frame(word_text: str, video_w: int, color, scale=1.0):
+def make_word_frame(word_text, video_w, color, scale=1.0):
     font = get_font(int(FONT_SIZE * scale))
     img  = Image.new("RGBA", (video_w, 260), (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
@@ -149,10 +120,10 @@ def make_word_frame(word_text: str, video_w: int, color, scale=1.0):
     draw.text((x, y), word_text, font=font, fill=color)
     return np.array(img)
 
-def make_hype_frame(hype_word: str, video_w: int):
-    font = get_font(int(FONT_SIZE * 1.4))
-    img  = Image.new("RGBA", (video_w, 300), (0, 0, 0, 0))
-    draw = ImageDraw.Draw(img)
+def make_hype_frame(hype_word, video_w):
+    font  = get_font(int(FONT_SIZE * 1.4))
+    img   = Image.new("RGBA", (video_w, 300), (0, 0, 0, 0))
+    draw  = ImageDraw.Draw(img)
     color = (255, 255, 0, 255)
     bbox   = draw.textbbox((0, 0), hype_word, font=font)
     text_w = bbox[2] - bbox[0]
@@ -166,7 +137,7 @@ def make_hype_frame(hype_word: str, video_w: int):
     draw.text((x, y), hype_word, font=font, fill=color)
     return np.array(img)
 
-def transcribe(video_path: str):
+def transcribe(video_path):
     logging.info("Transcribing with Whisper ...")
     audio  = whisper.load_audio(video_path)
     model  = whisper.load_model("base")
@@ -181,11 +152,14 @@ def transcribe(video_path: str):
             })
     return words
 
-def add_speed_captions(input_path: str, output_path: str):
+def get_full_transcript(words):
+    return " ".join(w["word"] for w in words)
+
+def add_speed_captions(input_path, output_path):
     words = transcribe(input_path)
     video = VideoFileClip(input_path)
     clips = []
-    bad = set("♫♪[]")
+    bad   = set("♫♪[]")
     words = [w for w in words if not any(c in w["word"] for c in bad)]
     sub_y     = video.h - 350
     hype_step = max(8, len(words) // 4)
@@ -215,11 +189,33 @@ def add_speed_captions(input_path: str, output_path: str):
     logging.info(f"Compositing {len(clips)} caption clips ...")
     final = CompositeVideoClip([video] + clips)
     final.write_videofile(output_path, codec="libx264", audio_codec="aac")
+    return words
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# MAIN
-# ═══════════════════════════════════════════════════════════════════════════════
+def generate_metadata(transcript, video_name):
+    genai.configure(api_key=GEMINI_API_KEY)
+    model = genai.GenerativeModel("gemini-1.5-flash")
+    prompt = f"""You are a professional YouTube Shorts growth strategist.
+Based on this video transcript: "{transcript}"
+And video file name: "{video_name}"
+
+Generate for maximum viral reach on YouTube Shorts:
+1. A short punchy viral TITLE (max 60 characters, hype energy)
+2. A compelling DESCRIPTION (2-3 sentences, energetic tone, ends with hashtags)
+3. Exactly 15 YouTube TAGS (mix of broad and niche, English)
+
+Return ONLY valid JSON, no markdown, no explanation:
+{{
+  "title": "...",
+  "description": "... #shorts #viral #fyp",
+  "tags": ["tag1", "tag2", "tag3", "tag4", "tag5", "tag6", "tag7", "tag8", "tag9", "tag10", "tag11", "tag12", "tag13", "tag14", "tag15"]
+}}"""
+    response = model.generate_content(prompt)
+    raw = response.text.strip().replace("```json", "").replace("```", "").strip()
+    metadata = json.loads(raw)
+    logging.info(f"Metadata generated: {metadata['title']}")
+    return metadata
+
 
 def main():
     dbx   = get_dropbox_client()
@@ -233,16 +229,17 @@ def main():
     logging.info(f"Processing: {target.name}")
 
     with tempfile.TemporaryDirectory() as tmp:
-        raw_path      = os.path.join(tmp, "raw.mp4")
-        portrait_path = os.path.join(tmp, "portrait.mp4")
-        final_path    = os.path.join(tmp, f"short_{target.name}")
-        json_path     = os.path.join(tmp, f"{target.name}_metadata.json")
+        raw_path    = os.path.join(tmp, "raw.mp4")
+        edited_path = os.path.join(tmp, "edited.mp4")
+        final_path  = os.path.join(tmp, f"short_{target.name}")
+        json_path   = os.path.join(tmp, f"{target.name}_metadata.json")
 
         download_file(dbx, target.path_lower, raw_path)
-        convert_to_portrait(raw_path, portrait_path)
-        add_speed_captions(portrait_path, final_path)
+        edit_video(raw_path, edited_path)
+        words = add_speed_captions(edited_path, final_path)
+        transcript = get_full_transcript(words)
 
-        metadata = generate_metadata(target.name)
+        metadata = generate_metadata(transcript, target.name)
         with open(json_path, "w", encoding="utf-8") as f:
             json.dump(metadata, f, ensure_ascii=False, indent=2)
 
