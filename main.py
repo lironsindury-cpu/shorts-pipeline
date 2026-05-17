@@ -199,7 +199,7 @@ def add_speed_captions(input_path, output_path):
 
 def generate_metadata(transcript, video_name):
     genai.configure(api_key=GEMINI_API_KEY)
-    model = genai.GenerativeModel("gemini-1.5-flash")
+    model = genai.GenerativeModel("gemini-2.0-flash")
     prompt = f"""You are a professional YouTube Shorts growth strategist.
 Based on this video transcript: "{transcript}"
 And video file name: "{video_name}"
