@@ -17,15 +17,14 @@ import whisper_timestamped as whisper
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 from moviepy.editor import VideoFileClip, ImageClip, CompositeVideoClip
-import google.generativeai as genai
+from groq import Groq
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
 
-# ── Config ──────────────────────────────────────────────────────────────────
 DROPBOX_TOKEN  = os.environ["DROPBOX_TOKEN"]
 DROPBOX_KEY    = "v9hm7aofsntq40a"
 DROPBOX_SECRET = "wllr5eqoopyvb5e"
-GEMINI_API_KEY = os.environ["GEMINI_API_KEY"]
+GROQ_API_KEY   = os.environ["GROQ_API_KEY"]
 RAW_FOLDER     = "/raw_videos"
 EDITED_FOLDER  = "/edited_shorts"
 
@@ -158,7 +157,7 @@ def transcribe(video_path):
     return words
 
 def get_full_transcript(words):
-    return " ".join(w["word"] for w in words)
+    return " ".join(w["word"] for w in words)[:1000]
 
 def add_speed_captions(input_path, output_path):
     words = transcribe(input_path)
@@ -198,8 +197,7 @@ def add_speed_captions(input_path, output_path):
 
 
 def generate_metadata(transcript, video_name):
-    genai.configure(api_key=GEMINI_API_KEY)
-    model = genai.GenerativeModel("gemini-2.0-flash")
+    client = Groq(api_key=GROQ_API_KEY)
     prompt = f"""You are a professional YouTube Shorts growth strategist.
 Based on this video transcript: "{transcript}"
 And video file name: "{video_name}"
@@ -215,8 +213,14 @@ Return ONLY valid JSON, no markdown, no explanation:
   "description": "... #shorts #viral #fyp",
   "tags": ["tag1", "tag2", "tag3", "tag4", "tag5", "tag6", "tag7", "tag8", "tag9", "tag10", "tag11", "tag12", "tag13", "tag14", "tag15"]
 }}"""
-    response = model.generate_content(prompt)
-    raw = response.text.strip().replace("```json", "").replace("```", "").strip()
+
+    response = client.chat.completions.create(
+        model="llama3-8b-8192",
+        messages=[{"role": "user", "content": prompt}],
+        temperature=0.7,
+    )
+    raw = response.choices[0].message.content.strip()
+    raw = raw.replace("```json", "").replace("```", "").strip()
     metadata = json.loads(raw)
     logging.info(f"Metadata generated: {metadata['title']}")
     return metadata
