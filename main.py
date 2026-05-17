@@ -22,10 +22,12 @@ import google.generativeai as genai
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
 
 # ── Config ──────────────────────────────────────────────────────────────────
-DROPBOX_TOKEN = os.environ["DROPBOX_TOKEN"]
+DROPBOX_TOKEN  = os.environ["DROPBOX_TOKEN"]
+DROPBOX_KEY    = "v9hm7aofsntq40a"
+DROPBOX_SECRET = "wllr5eqoopyvb5e"
 GEMINI_API_KEY = os.environ["GEMINI_API_KEY"]
-RAW_FOLDER    = "/raw_videos"
-EDITED_FOLDER = "/edited_shorts"
+RAW_FOLDER     = "/raw_videos"
+EDITED_FOLDER  = "/edited_shorts"
 
 HYPE_WORDS = [
     "SHEESH","LETS GO","W","BUSSIN","RIZZ",
@@ -40,7 +42,11 @@ FONT_PATHS = [
 
 
 def get_dropbox_client():
-    return dropbox.Dropbox(DROPBOX_TOKEN)
+    return dropbox.Dropbox(
+        oauth2_refresh_token=DROPBOX_TOKEN,
+        app_key=DROPBOX_KEY,
+        app_secret=DROPBOX_SECRET
+    )
 
 def list_raw_videos(dbx):
     result = dbx.files_list_folder(RAW_FOLDER)
@@ -90,7 +96,6 @@ def edit_video(input_path, output_path):
     if result2.returncode != 0:
         import shutil
         shutil.copy(temp_edited, output_path)
-
     os.remove(temp_edited)
 
 
