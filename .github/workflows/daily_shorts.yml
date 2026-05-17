@@ -22,15 +22,14 @@ jobs:
       - name: Install FFmpeg
         run: sudo apt-get update && sudo apt-get install -y ffmpeg fonts-liberation
 
-      - name: Install dropbox and other deps
-        run: pip install dropbox moviepy==1.0.3 whisper-timestamped Pillow numpy openai-whisper anthropic
+      - name: Install Python dependencies
+        run: pip install dropbox moviepy==1.0.3 whisper-timestamped Pillow numpy openai-whisper google-generativeai
 
-      - name: Install torch
+      - name: Install PyTorch CPU
         run: pip install torch --index-url https://download.pytorch.org/whl/cpu
 
       - name: Run pipeline
         env:
           DROPBOX_TOKEN: ${{ secrets.DROPBOX_TOKEN }}
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: python main.py
-    
