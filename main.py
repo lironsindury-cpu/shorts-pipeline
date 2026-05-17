@@ -215,7 +215,7 @@ Return ONLY valid JSON, no markdown, no explanation:
 }}"""
 
     response = client.chat.completions.create(
-        model="llama3-8b-8192",
+        model="llama3-70b-8192",
         messages=[{"role": "user", "content": prompt}],
         temperature=0.7,
     )
