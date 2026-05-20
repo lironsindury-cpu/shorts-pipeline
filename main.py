@@ -48,8 +48,12 @@ def get_dropbox_client():
     )
 
 def list_raw_videos(dbx):
-    result = dbx.files_list_folder(RAW_FOLDER)
-    return [e for e in result.entries if isinstance(e, dropbox.files.FileMetadata)]
+    result = dbx.files_list_folder(RAW_FOLDER, recursive=True)
+    return [
+        e for e in result.entries
+        if isinstance(e, dropbox.files.FileMetadata)
+        and e.name.lower().endswith('.mp4')
+    ]
 
 def download_file(dbx, dropbox_path, local_path):
     logging.info(f"Downloading {dropbox_path} ...")
