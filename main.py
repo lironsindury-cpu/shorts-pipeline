@@ -175,7 +175,7 @@ def add_speed_captions(input_path, output_path):
             clips.append(hclip)
     logging.info(f"Compositing {len(clips)} caption clips ...")
     final = CompositeVideoClip([video] + clips)
-    final.write_videofile(output_path, codec="libx264", audio_codec="aac")
+    final.write_videofile(output_path, codec="libx264", audio_codec="aac", fps=30)
     return words
 def generate_metadata(transcript, video_name):
     client = Groq(api_key=GROQ_API_KEY)
