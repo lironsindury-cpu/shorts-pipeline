@@ -2,7 +2,6 @@
 main.py - GitHub Actions Video Editor
 Flow: Dropbox raw_videos/ -> Edit (iShowSpeed style) -> Dropbox edited_shorts/
 """
-
 import os
 import sys
 import json
@@ -10,7 +9,6 @@ import logging
 import random
 import subprocess
 import tempfile
-
 import dropbox
 from dropbox.files import WriteMode
 import whisper_timestamped as whisper
@@ -18,16 +16,13 @@ import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 from moviepy.editor import VideoFileClip, ImageClip, CompositeVideoClip
 from groq import Groq
-
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
-
 DROPBOX_TOKEN  = os.environ["DROPBOX_TOKEN"]
 DROPBOX_KEY    = "v9hm7aofsntq40a"
 DROPBOX_SECRET = "wllr5eqoopyvb5e"
 GROQ_API_KEY   = os.environ["GROQ_API_KEY"]
 RAW_FOLDER     = "/raw_videos"
 EDITED_FOLDER  = "/edited_shorts"
-
 HYPE_WORDS = [
     "SHEESH","LETS GO","W","BUSSIN","RIZZ",
     "NOWAY","GOATED","SIGMA","GIGACHAD","FR FR",
@@ -38,15 +33,12 @@ FONT_PATHS = [
     "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
     "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
 ]
-
-
 def get_dropbox_client():
     return dropbox.Dropbox(
         oauth2_refresh_token=DROPBOX_TOKEN,
         app_key=DROPBOX_KEY,
         app_secret=DROPBOX_SECRET
     )
-
 def list_raw_videos(dbx):
     result = dbx.files_list_folder(RAW_FOLDER, recursive=True)
     return [
@@ -54,23 +46,18 @@ def list_raw_videos(dbx):
         if isinstance(e, dropbox.files.FileMetadata)
         and e.name.lower().endswith('.mp4')
     ]
-
 def download_file(dbx, dropbox_path, local_path):
     logging.info(f"Downloading {dropbox_path} ...")
     with open(local_path, "wb") as f:
         _, response = dbx.files_download(dropbox_path)
         f.write(response.content)
-
 def upload_file(dbx, local_path, dropbox_path):
     logging.info(f"Uploading to {dropbox_path} ...")
     with open(local_path, "rb") as f:
         dbx.files_upload(f.read(), dropbox_path, mode=WriteMode.overwrite)
-
 def delete_file(dbx, dropbox_path):
     dbx.files_delete_v2(dropbox_path)
     logging.info(f"Deleted {dropbox_path}")
-
-
 def edit_video(input_path, output_path):
     temp_edited = input_path.replace(".mp4", "_temp_edited.mp4")
     cmd = [
@@ -86,7 +73,6 @@ def edit_video(input_path, output_path):
     result = subprocess.run(cmd, capture_output=True, text=True)
     if result.returncode != 0:
         raise RuntimeError(f"ffmpeg edit failed:\n{result.stderr}")
-
     cmd2 = [
         "ffmpeg", "-y", "-i", temp_edited,
         "-af",
@@ -100,8 +86,6 @@ def edit_video(input_path, output_path):
         import shutil
         shutil.copy(temp_edited, output_path)
     os.remove(temp_edited)
-
-
 def get_font(size=FONT_SIZE):
     for path in FONT_PATHS:
         if os.path.exists(path):
@@ -110,7 +94,6 @@ def get_font(size=FONT_SIZE):
             except Exception:
                 continue
     return ImageFont.load_default()
-
 def make_word_frame(word_text, video_w, color, scale=1.0):
     font = get_font(int(FONT_SIZE * scale))
     img  = Image.new("RGBA", (video_w, 260), (0, 0, 0, 0))
@@ -127,7 +110,6 @@ def make_word_frame(word_text, video_w, color, scale=1.0):
                 draw.text((x + dx, y + dy), word_text, font=font, fill=(0, 0, 0, 255))
     draw.text((x, y), word_text, font=font, fill=color)
     return np.array(img)
-
 def make_hype_frame(hype_word, video_w):
     font  = get_font(int(FONT_SIZE * 1.4))
     img   = Image.new("RGBA", (video_w, 300), (0, 0, 0, 0))
@@ -144,7 +126,6 @@ def make_hype_frame(hype_word, video_w):
                 draw.text((x + dx, y + dy), hype_word, font=font, fill=(0, 0, 0, 255))
     draw.text((x, y), hype_word, font=font, fill=color)
     return np.array(img)
-
 def transcribe(video_path):
     logging.info("Transcribing with Whisper ...")
     audio  = whisper.load_audio(video_path)
@@ -159,10 +140,8 @@ def transcribe(video_path):
                 "end":   w["end"],
             })
     return words
-
 def get_full_transcript(words):
     return " ".join(w["word"] for w in words)[:1000]
-
 def add_speed_captions(input_path, output_path):
     words = transcribe(input_path)
     video = VideoFileClip(input_path)
@@ -198,26 +177,21 @@ def add_speed_captions(input_path, output_path):
     final = CompositeVideoClip([video] + clips)
     final.write_videofile(output_path, codec="libx264", audio_codec="aac")
     return words
-
-
 def generate_metadata(transcript, video_name):
     client = Groq(api_key=GROQ_API_KEY)
     prompt = f"""You are a professional YouTube Shorts growth strategist.
 Based on this video transcript: "{transcript}"
 And video file name: "{video_name}"
-
 Generate for maximum viral reach on YouTube Shorts:
 1. A short punchy viral TITLE (max 60 characters, hype energy)
 2. A compelling DESCRIPTION (2-3 sentences, energetic tone, ends with hashtags)
 3. Exactly 15 YouTube TAGS (mix of broad and niche, English)
-
 Return ONLY valid JSON, no markdown, no explanation:
 {{
   "title": "...",
   "description": "... #shorts #viral #fyp",
   "tags": ["tag1", "tag2", "tag3", "tag4", "tag5", "tag6", "tag7", "tag8", "tag9", "tag10", "tag11", "tag12", "tag13", "tag14", "tag15"]
 }}"""
-
     response = client.chat.completions.create(
         model="llama-3.1-8b-instant",
         messages=[{"role": "user", "content": prompt}],
@@ -228,40 +202,29 @@ Return ONLY valid JSON, no markdown, no explanation:
     metadata = json.loads(raw)
     logging.info(f"Metadata generated: {metadata['title']}")
     return metadata
-
-
 def main():
     dbx   = get_dropbox_client()
     files = list_raw_videos(dbx)
-
     if not files:
         logging.info("No raw videos found in Dropbox. Exiting.")
         sys.exit(0)
-
     target = files[0]
     logging.info(f"Processing: {target.name}")
-
     with tempfile.TemporaryDirectory() as tmp:
         raw_path    = os.path.join(tmp, "raw.mp4")
         edited_path = os.path.join(tmp, "edited.mp4")
-        final_path  = os.path.join(tmp, f"short_{target.name}")
+        final_path  = os.path.join(tmp, f"{target.name}_edited.mp4")
         json_path   = os.path.join(tmp, f"{target.name}_metadata.json")
-
         download_file(dbx, target.path_lower, raw_path)
         edit_video(raw_path, edited_path)
         words = add_speed_captions(edited_path, final_path)
         transcript = get_full_transcript(words)
-
         metadata = generate_metadata(transcript, target.name)
         with open(json_path, "w", encoding="utf-8") as f:
             json.dump(metadata, f, ensure_ascii=False, indent=2)
-
-        upload_file(dbx, final_path, f"{EDITED_FOLDER}/short_{target.name}")
+        upload_file(dbx, final_path, f"{EDITED_FOLDER}/{target.name}_edited.mp4")
         upload_file(dbx, json_path,  f"{EDITED_FOLDER}/{target.name}_metadata.json")
         delete_file(dbx, target.path_lower)
-
     logging.info("Done!")
-
-
 if __name__ == "__main__":
     main()
