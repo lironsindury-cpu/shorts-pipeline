@@ -175,7 +175,20 @@ def add_speed_captions(input_path, output_path):
             clips.append(hclip)
     logging.info(f"Compositing {len(clips)} caption clips ...")
     final = CompositeVideoClip([video] + clips)
-    final.write_videofile(output_path, codec="libx264", audio_codec="aac", fps=30)
+    final.write_videofile(
+        output_path,
+        fps=30,
+        codec="libx264",
+        audio_codec="aac",
+        preset="fast",
+        threads=4,
+        ffmpeg_params=[
+            "-pix_fmt", "yuv420p",
+            "-b:a", "192k",
+            "-ar", "44100",
+            "-profile:v", "main"
+        ]
+    )
     return words
 def generate_metadata(transcript, video_name):
     client = Groq(api_key=GROQ_API_KEY)
