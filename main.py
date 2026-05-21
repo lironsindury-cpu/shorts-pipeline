@@ -67,7 +67,7 @@ def edit_video(input_path, output_path):
         "-filter:v", "setpts=PTS/1.03",
         "-af", "atempo=1.03",
         "-c:v", "libx264", "-crf", "23",
-        "-c:a", "aac", "-t", "58",
+        "-c:a", "aac", "-t", "55",
         temp_edited
     ]
     result = subprocess.run(cmd, capture_output=True, text=True)
@@ -78,7 +78,7 @@ def edit_video(input_path, output_path):
         "-af",
         "silenceremove=start_periods=1:start_silence=0.3:start_threshold=-40dB"
         ":stop_periods=-1:stop_silence=0.3:stop_threshold=-40dB",
-        "-t", "58",
+        "-t", "55",
         "-c:v", "copy",
         output_path
     ]
