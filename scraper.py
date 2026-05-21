@@ -33,11 +33,14 @@ def save_history(history):
 
 def write_cookies_file():
     cookies_content = os.environ.get("YOUTUBE_COOKIES", "")
+    print(f"DEBUG: YOUTUBE_COOKIES length = {len(cookies_content)}")
     if not cookies_content:
+        print("DEBUG: No cookies found!")
         return None
     cookie_path = "/tmp/youtube_cookies.txt"
     with open(cookie_path, "w") as f:
         f.write(cookies_content)
+    print(f"DEBUG: Cookies written to {cookie_path}")
     return cookie_path
 
 def get_latest_video_id(cookie_path=None):
@@ -50,6 +53,7 @@ def get_latest_video_id(cookie_path=None):
     ]
     if cookie_path:
         cmd += ["--cookies", cookie_path]
+    print(f"DEBUG: Running cmd: {' '.join(cmd)}")
     result = subprocess.run(cmd, capture_output=True, text=True)
     ids = [line.strip() for line in result.stdout.strip().split("\n") if line.strip()]
     return ids
