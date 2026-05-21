@@ -31,26 +31,41 @@ def save_history(history):
     with open(HISTORY_FILE, "w") as f:
         f.write("\n".join(history))
 
-def get_latest_video_id():
-    result = subprocess.run([
+def write_cookies_file():
+    cookies_content = os.environ.get("YOUTUBE_COOKIES", "")
+    if not cookies_content:
+        return None
+    cookie_path = "/tmp/youtube_cookies.txt"
+    with open(cookie_path, "w") as f:
+        f.write(cookies_content)
+    return cookie_path
+
+def get_latest_video_id(cookie_path=None):
+    cmd = [
         "yt-dlp",
         "--flat-playlist",
         "--playlist-end", "5",
         "--print", "id",
         TARGET_URL
-    ], capture_output=True, text=True)
+    ]
+    if cookie_path:
+        cmd += ["--cookies", cookie_path]
+    result = subprocess.run(cmd, capture_output=True, text=True)
     ids = [line.strip() for line in result.stdout.strip().split("\n") if line.strip()]
     return ids
 
-def download_video(video_id, output_path):
+def download_video(video_id, output_path, cookie_path=None):
     url = f"https://www.youtube.com/shorts/{video_id}"
-    result = subprocess.run([
+    cmd = [
         "yt-dlp",
         "-f", "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]",
         "--merge-output-format", "mp4",
         "-o", output_path,
         url
-    ], capture_output=True, text=True)
+    ]
+    if cookie_path:
+        cmd += ["--cookies", cookie_path]
+    result = subprocess.run(cmd, capture_output=True, text=True)
     if result.returncode != 0:
         raise RuntimeError(f"yt-dlp failed:\n{result.stderr}")
 
@@ -63,23 +78,22 @@ def upload_to_dropbox(dbx, local_path, filename):
 def main():
     dbx = get_dropbox_client()
     history = load_history()
-    video_ids = get_latest_video_id()
-
+    cookie_path = write_cookies_file()
+    video_ids = get_latest_video_id(cookie_path)
     for video_id in video_ids:
         if video_id in history:
             print(f"Already downloaded: {video_id}")
             continue
-
         print(f"Downloading: {video_id}")
         with tempfile.TemporaryDirectory() as tmp:
             output_path = os.path.join(tmp, f"{video_id}.mp4")
             try:
-                download_video(video_id, output_path)
+                download_video(video_id, output_path, cookie_path)
                 upload_to_dropbox(dbx, output_path, f"{video_id}.mp4")
                 history.add(video_id)
                 save_history(history)
                 print(f"Done: {video_id}")
-                break  # Only process one new video per run
+                break
             except Exception as e:
                 print(f"Error: {e}")
                 continue
