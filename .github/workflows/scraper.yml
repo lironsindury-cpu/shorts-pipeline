@@ -9,7 +9,6 @@ jobs:
   scrape:
     runs-on: ubuntu-latest
     timeout-minutes: 30
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -25,13 +24,14 @@ jobs:
       - name: Run scraper
         env:
           DROPBOX_TOKEN: ${{ secrets.DROPBOX_TOKEN }}
+          YOUTUBE_COOKIES: ${{ secrets.YOUTUBE_COOKIES }}
         run: python scraper.py
 
       - name: Commit history.txt
         run: |
           git config --global user.name "github-actions"
           git config --global user.email "actions@github.com"
+          touch history.txt
           git add history.txt
           git diff --staged --quiet || git commit -m "Update history.txt"
           git push
-        
